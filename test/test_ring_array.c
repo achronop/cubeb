@@ -1,3 +1,5 @@
+#ifdef __APPLE__
+
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
@@ -73,4 +75,5 @@ int main()
   test_ring_array();
   return 0;
 }
+#endif
 
