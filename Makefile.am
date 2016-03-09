@@ -113,7 +113,7 @@ test_test_record_LDADD = -lm src/libcubeb.la $(platform_lib)
 test_test_utils_SOURCES = test/test_utils.cpp
 
 test_test_ring_array_SOURCES = test/test_ring_array.c
-test_test_ring_array_LDADD = -lpthread
+test_test_ring_array_LDADD = -lm $(platform_lib)
 
 TESTS = $(check_PROGRAMS)
 
