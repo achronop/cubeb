@@ -1,5 +1,8 @@
 #!/bin/sh -x
 
+# Circumvent https://github.com/direnv/direnv/issues/210
+shell_session_update() { :; }
+
 CLANG_CHECKER_NAME=checker-278
 
 cd ~
