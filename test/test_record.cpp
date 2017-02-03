@@ -35,8 +35,10 @@ long data_cb_record(cubeb_stream * stream, void * user, const void * inputbuffer
 
   bool seen_audio = true;
   for (long i = 0; i < nframes; i++) {
-    if (b[i] >= -1.0 && b[i] <= 1.0) {
-      seen_audio &= true;
+    if (b[i] <= -1.0 && b[i] >= 1.0) {
+      seen_audio = false;
+      printf("error b[%d] = %f\n", i, b[i]); 
+      break;
     }
   }
 
@@ -97,7 +99,7 @@ TEST(cubeb, record)
   }
 
   cubeb_stream_start(stream);
-  delay(500);
+  delay(1000);
   cubeb_stream_stop(stream);
 
   cubeb_stream_destroy(stream);
