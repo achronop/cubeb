@@ -30,7 +30,7 @@ long data_cb_duplex(cubeb_stream * stream, void * user, const void * inputbuffer
   user_state_duplex * u = reinterpret_cast<user_state_duplex*>(user);
   float *ib = (float *)inputbuffer;
   float *ob = (float *)outputbuffer;
-  bool seen_audio = false;
+  bool seen_audio = true;
 
   if (stream == NULL || inputbuffer == NULL || outputbuffer == NULL) {
     return CUBEB_ERROR;
@@ -40,8 +40,9 @@ long data_cb_duplex(cubeb_stream * stream, void * user, const void * inputbuffer
   // checking if there is noise in the process.
   long output_index = 0;
   for (long i = 0; i < nframes; i++) {
-    if (ib[i] >= -1.0 && ib[i] <= 1.0) {
-      seen_audio = true;
+    if (ib[i] <= -1.0 && ib[i] >= 1.0) {
+      seen_audio = false;
+      break;
     }
     ob[output_index] = ob[output_index + 1] = ib[i];
     output_index += 2;
