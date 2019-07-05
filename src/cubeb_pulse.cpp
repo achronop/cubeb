@@ -7,6 +7,7 @@
 #undef NDEBUG
 #include <assert.h>
 #include <dlfcn.h>
+#include <memory>
 #include <pulse/pulseaudio.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +16,7 @@
 #include "cubeb/cubeb.h"
 #include "cubeb_mixer.h"
 #include "cubeb_strings.h"
+#include "cubeb_utils.h"
 
 #ifdef DISABLE_LIBPULSE_DLOPEN
 #define WRAP(x) x
@@ -96,7 +98,9 @@ LIBPULSE_API_VISIT(MAKE_TYPEDEF);
 static int has_pulse_v2 = 0;
 #endif
 
-static struct cubeb_ops const pulse_ops;
+using namespace std;
+
+extern cubeb_ops const pulse_ops;
 
 struct cubeb_default_sink_info {
   pa_channel_map channel_map;
@@ -134,6 +138,7 @@ struct cubeb_stream {
   int shutdown;
   float volume;
   cubeb_state state;
+  unique_ptr<auto_array_wrapper> duplex_input_buffer;
 };
 
 static const float PULSE_NO_GAIN = -1.0;
@@ -613,6 +618,7 @@ pulse_context_init(cubeb * ctx)
   return 0;
 }
 
+extern "C" {
 /*static*/ int
 pulse_init(cubeb ** context, char const * context_name)
 {
@@ -680,6 +686,7 @@ pulse_init(cubeb ** context, char const * context_name)
   *context = ctx;
 
   return CUBEB_OK;
+}
 }
 
 static char const *
@@ -1616,7 +1623,7 @@ pulse_register_device_collection_changed(cubeb * context,
   return CUBEB_OK;
 }
 
-static struct cubeb_ops const pulse_ops = {
+cubeb_ops const pulse_ops = {
   .init = pulse_init,
   .get_backend_id = pulse_get_backend_id,
   .get_max_channel_count = pulse_get_max_channel_count,
