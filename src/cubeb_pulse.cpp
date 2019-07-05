@@ -88,6 +88,7 @@
   X(pa_mainloop_api_once)                       \
   X(pa_get_library_version)                     \
   X(pa_channel_map_init_auto)                   \
+  X(pa_sample_size)                             \
 
 #define MAKE_TYPEDEF(x) static typeof(x) * cubeb_##x;
 LIBPULSE_API_VISIT(MAKE_TYPEDEF);
@@ -350,7 +351,22 @@ stream_write_callback(pa_stream * s, size_t nbytes, void * u)
     return;
   }
 
-  if (!stm->input_stream){
+  if (stm->input_stream) {
+    LOGV("- a - Output callback input length(samples) %zd", stm->duplex_input_buffer->length());
+
+    size_t out_sample_size = WRAP(pa_sample_size)(&stm->output_sample_spec);
+    int missing_samples = (nbytes / out_sample_size) - stm->duplex_input_buffer->length();
+    if (missing_samples > 0) {
+      stm->duplex_input_buffer->push_silence(missing_samples);
+    }
+
+    trigger_user_callback(s,
+                          stm->duplex_input_buffer->data(),
+                          nbytes, stm);
+
+    stm->duplex_input_buffer->pop(nbytes / out_sample_size);
+    LOGV("- b - Output callback input samples used %zd", nbytes / out_sample_size);
+  } else {
     // Output/playback only operation.
     // Write directly to output
     assert(!stm->input_stream && stm->output_stream);
@@ -369,6 +385,7 @@ stream_read_callback(pa_stream * s, size_t nbytes, void * u)
 
   void const * read_data = NULL;
   size_t read_size;
+  size_t out_sample_size = WRAP(pa_sample_size)(&stm->output_sample_spec);
   while (read_from_input(s, &read_data, &read_size) > 0) {
     /* read_data can be NULL in case of a hole. */
     if (read_data) {
@@ -377,10 +394,8 @@ stream_read_callback(pa_stream * s, size_t nbytes, void * u)
 
       if (stm->output_stream) {
         // input/capture + output/playback operation
-        size_t out_frame_size = WRAP(pa_frame_size)(&stm->output_sample_spec);
-        size_t write_size = read_frames * out_frame_size;
         // Offer full duplex data for writing
-        trigger_user_callback(stm->output_stream, read_data, write_size, stm);
+        stm->duplex_input_buffer->push(read_data, read_size / out_sample_size);
       } else {
         // input/capture only operation. Call callback directly
         long got = stm->data_callback(stm, stm->user_ptr, read_data, NULL, read_frames);
@@ -794,6 +809,16 @@ to_pulse_format(cubeb_sample_format format)
   }
 }
 
+bool is_sample_format_float(cubeb_sample_format format) {
+  switch (format) {
+  case CUBEB_SAMPLE_FLOAT32LE:
+  case CUBEB_SAMPLE_FLOAT32BE:
+    return true;
+  default:
+    return false;
+  }
+}
+
 static cubeb_channel_layout
 pulse_default_layout_for_channels(uint32_t ch)
 {
@@ -939,6 +964,15 @@ pulse_stream_init(cubeb * context,
       return r;
     }
 
+    if (output_stream_params) {
+      if (is_sample_format_float(input_stream_params->format)) {
+        // hardcoded capacity for now, just something big
+        stm->duplex_input_buffer.reset(new auto_array_wrapper_impl<float>(512));
+      } else {
+        stm->duplex_input_buffer.reset(new auto_array_wrapper_impl<short>(512));
+      }
+    }
+
     stm->input_sample_spec = *(WRAP(pa_stream_get_sample_spec)(stm->input_stream));
 
     WRAP(pa_stream_set_state_callback)(stm->input_stream, stream_state_callback, stm);
@@ -1027,8 +1061,18 @@ pulse_defer_event_cb(pa_mainloop_api * a, void * userdata)
   if (stm->shutdown) {
     return;
   }
+  assert(stm->output_stream);
+
   size_t writable_size = WRAP(pa_stream_writable_size)(stm->output_stream);
-  trigger_user_callback(stm->output_stream, NULL, writable_size, stm);
+  if (stm->input_stream) { //duplex
+    assert(stm->duplex_input_buffer->length() == 0);
+    size_t out_sample_size = WRAP(pa_sample_size)(&stm->output_sample_spec);
+    stm->duplex_input_buffer->push_silence(writable_size / out_sample_size);
+    trigger_user_callback(stm->output_stream, stm->duplex_input_buffer->data(), writable_size, stm);
+    stm->duplex_input_buffer->clear();
+  } else {
+    trigger_user_callback(stm->output_stream, NULL, writable_size, stm);
+  }
 }
 
 static int
@@ -1037,7 +1081,7 @@ pulse_stream_start(cubeb_stream * stm)
   stm->shutdown = 0;
   stream_cork(stm, UNCORK | NOTIFY);
 
-  if (stm->output_stream && !stm->input_stream) {
+  if (stm->output_stream) {
     /* On output only case need to manually call user cb once in order to make
      * things roll. This is done via a defer event in order to execute it
      * from PA server thread. */
